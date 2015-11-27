@@ -1,0 +1,193 @@
+---
+title: "Use of ghcn files with R"
+author: "Balti Boix"
+date: "27 de noviembre de 2015"
+output: 
+  html_document: 
+    fig_height: 8
+    fig_width: 12
+---
+
+###Summary
+
+Example code for reading and plotting data from:
+
+      Global Historical Climatology Network - Daily (GHCN-Daily)
+      http://gis.ncdc.noaa.gov/all-records/catalog/search/resource/details.page?id=gov.noaa.ncdc:C00861
+
+###Code
+
+Load the packages used in the code
+
+```{r warning=FALSE, message=FALSE}
+require(dplyr, quietly = TRUE)
+require(utils, quietly = TRUE)
+require(LaF, quietly = TRUE)
+require(tidyr, quietly = TRUE)
+require(ggplot2, quietly = TRUE)
+require(ggfortify, quietly = TRUE)
+```
+
+Specific information about location and format of the datasets:
+
+      http://www1.ncdc.noaa.gov/pub/data/ghcn/daily/readme.txt
+
+Read the stations data
+
+```{r warning=FALSE, message=FALSE}
+# IV. FORMAT OF "ghcnd-stations.txt"
+# 
+# ------------------------------
+#       Variable   Columns   Type
+# ------------------------------
+# ID            1-11   Character
+# LATITUDE     13-20   Real
+# LONGITUDE    22-30   Real
+# ELEVATION    32-37   Real
+# STATE        39-40   Character
+# NAME         42-71   Character
+# GSN FLAG     73-75   Character
+# HCN/CRN FLAG 77-79   Character
+# WMO ID       81-85   Character
+# ------------------------------
+
+download.file("ftp://ftp.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt", destfile = "stations.txt")
+
+stations_width<-c(12, 9, 10, 7, 3, 31)
+stations_colname<-c("id", "latitude", "longitude", "elevation", "state", "name")
+
+laf <- laf_open_fwf("stations.txt", column_widths = stations_width, 
+                    column_types=rep("character",6),
+                    column_names = stations_colname)
+
+stations<-laf[,]
+```
+
+The stations from Spain are selected
+
+```{r warning=FALSE, message=FALSE}
+sp_stations<-filter(stations, grepl("SP00", substr(stations$id,1,4)))
+sp_stations$url<-paste0("ftp://ftp.ncdc.noaa.gov/pub/data/ghcn/daily/all/", trimws(sp_stations$id), ".dly")
+```
+
+Once the url's for station datasets are known the files are downloaded and loaded into a data frame
+
+```{r warning=FALSE, message=FALSE}
+# ------------------------------
+#       Variable   Columns   Type
+# ------------------------------
+# ID            1-11   Character
+# YEAR         12-15   Integer
+# MONTH        16-17   Integer
+# ELEMENT      18-21   Character
+# VALUE1       22-26   Integer
+# MFLAG1       27-27   Character
+# QFLAG1       28-28   Character
+# SFLAG1       29-29   Character
+# VALUE2       30-34   Integer
+# MFLAG2       35-35   Character
+# QFLAG2       36-36   Character
+# SFLAG2       37-37   Character
+# .           .          .
+# .           .          .
+# .           .          .
+# VALUE31    262-266   Integer
+# MFLAG31    267-267   Character
+# QFLAG31    268-268   Character
+# SFLAG31    269-269   Character
+# ------------------------------
+
+col_width<-c(11, 4, 2, 4, rep(c(5, 1, 1, 1), 31))
+
+col_types<-c("character", "integer", "integer", "character", rep(c("integer", "character", "character", "character"),31))
+
+col_names<-c("id", "year", "month", "element")
+for(i in 1:31) col_names<-c(col_names, paste0("value", i), paste0("mflag", i), paste0("qflag", i), paste0("sflag", i))
+
+for (i in 1:nrow(sp_stations)){
+      
+      download.file(sp_stations$url[i], destfile = as.character(sp_stations$id[i]))
+      
+      laf <- laf_open_fwf(as.character(sp_stations$id[i]), column_widths = col_width, 
+                          column_types=col_types,
+                          column_names = col_names)
+      
+      if(i == 1){
+            df<-laf[,]
+      }else{
+            df<-rbind(df, laf[,])
+      }     
+}
+```
+
+The data is arranged into a structure easier to use with ggplot 
+
+```{r warning=FALSE}
+dff<-select(df, 1:4, starts_with("value"))
+dffg<-gather(dff, key = day, value = value, 5:35)
+dffg$value<-ifelse(dffg$value == -9999,NA,dffg$value)
+dffg$day<-as.integer(substr(dffg$day,6,7))
+dffg<-mutate(dffg, date=ISOdate(dffg$year,dffg$month,dffg$day))
+dffg<-arrange(dffg, id, element, date)
+```
+
+The monthly averages are calculated
+
+```{r warning=FALSE, message=FALSE}
+pru_gby<-group_by(dffg, id, element, month, year)
+pru<-summarize(pru_gby, mval=mean(value, na.rm=TRUE ))
+pru$month<-factor(pru$month)
+levels(pru$month)<-month.name
+pru$id<-factor(pru$id)
+levels(pru$id)<-sp_stations$name
+```
+
+Plot the monthly averages of TMAX and TMIN elements
+
+```{r warning=FALSE, message=FALSE}
+pruTMAX<-filter(pru, element == "TMAX")
+pruTMIN<-filter(pru, element == "TMIN")
+
+p<-ggplot()
+p<-p+geom_line(data=pruTMAX, aes(x=month, y=mval, group = interaction(year,element)), alpha=0.5, color="gray")
+p<-p+geom_smooth(data=pruTMAX, aes(x=month, y=mval, group=1), size=1.5, se=FALSE, color="red")
+p<-p+geom_line(data=pruTMIN, aes(x=month, y=mval, group = interaction(year,element)), alpha=0.5, color="gray")
+p<-p+geom_smooth(data=pruTMIN, aes(x=month, y=mval, group=1), size=1.5, se=FALSE, color="blue")
+p<-p+facet_wrap(~ id, ncol=4)
+p<-p+ylab("Temp °C x 10")
+p<-p+ggtitle("MONTHLY TMAX / TMIN")
+p<-p+theme(axis.title.y=element_text(hjust = 0.5, size = 12), 
+           axis.title.x=element_blank(), 
+           plot.title = element_text(hjust = 0.5, size = 16),
+           axis.text.x = element_text(size=8, angle = 45, hjust = 1)) 
+suppressMessages(print(p))
+```
+
+Decompose the TMAX time series for one station
+
+```{r warning=FALSE, message=FALSE}
+pru<-filter(dffg, element == "TMAX", id == sp_stations$id[13], !is.na(value))
+pru<-select(pru, date, value)
+pru<-pru[order(pru$date),]
+pruts<-ts(pru$value, frequency = 365)
+prucomp<-decompose(pruts, type = "additive")
+```
+
+and plot the result
+
+```{r warning=FALSE, message=FALSE}
+p<-ggplot(pru, aes(x=date, y=value))
+p<-p+geom_line(size=0.1, color="red")
+p<-p+xlab("")
+p<-p+ylab("Temp °C x 10")
+p<-p+ggtitle(paste("TMAX of station ", sp_stations$name[13]))
+print(p)
+
+p<-autoplot(prucomp, ts.colour = "blue")
+p<-p + xlab("Years")
+p<-p+ylab("Temp °C x 10")
+p<-p + ggtitle(paste("TMAX decomposition of station ", sp_stations$name[13]))
+print(p)
+```
+
+***I hope it will be useful!***
