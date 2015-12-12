@@ -4,6 +4,8 @@ require(LaF, quietly = TRUE)
 require(tidyr, quietly = TRUE)
 require(ggplot2, quietly = TRUE)
 require(ggfortify, quietly = TRUE)
+require(scales, quietly = TRUE)
+source('~/RProjects/ghcn/HWplot.R')
 
 # IV. FORMAT OF "ghcnd-stations.txt"
 # 
@@ -88,12 +90,15 @@ dffg$day<-as.integer(substr(dffg$day,6,7))
 dffg<-mutate(dffg, date=as.Date(paste(year,month,day), "%Y%m%d"))
 dffg<-arrange(dffg, id, element, date)
 
+dffg$id<-factor(dffg$id)
+levels(dffg$id) = sp_stations$name
+TData<-filter(dffg, element %in% c("TMAX", "TMIN"))
+save(TData, file="TData.rda")
+
 pru_gby<-group_by(dffg, id, element, month, year)
 pru<-summarize(pru_gby, mval=mean(value, na.rm=TRUE ))
 pru$month<-factor(pru$month)
 levels(pru$month)<-month.name
-pru$id<-factor(pru$id)
-levels(pru$id)<-sp_stations$name
 
 pruTMAX<-filter(pru, element == "TMAX")
 pruTMIN<-filter(pru, element == "TMIN")
@@ -114,7 +119,7 @@ p<-p+theme(axis.title.y=element_text(hjust = 0.5, size = 12),
 suppressMessages(print(p))
 dev.off()
 
-pru<-filter(dffg, element == "TMAX", id == sp_stations$id[1], !is.na(value), date >= "2000-01-01")
+pru<-filter(dffg, element == "TMAX", id == sp_stations$name[1], !is.na(value), date >= "2000-01-01")
 pru<-select(pru, date, value)
 pruts<-ts(pru$value, frequency = 365, start=c(as.numeric(format(pru$date[1], "%Y"), 1)))
 prucomp<-decompose(pruts, type = "additive")
@@ -127,7 +132,7 @@ print(p)
 
 pruHW<-HoltWinters(pruts)
 hist(residuals(pruHW), breaks=20, freq=TRUE)
-p<-HWplot(pruHW,365)
+p<-HWplot(pruHW, n.ahead = 365, CI = 0.75)
 p<-p + scale_x_date(breaks = date_breaks("month"), labels = date_format("%b-%y"),
                     limits=c(as.Date("2014-01-01", "%Y-%m-%d"), as.Date("2016-01-01", "%Y-%m-%d")))
 print(p)

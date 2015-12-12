@@ -127,8 +127,17 @@ dff<-select(df, 1:4, starts_with("value"))
 dffg<-gather(dff, key = day, value = value, 5:35)
 dffg$value<-ifelse(dffg$value == -9999,NA,dffg$value)
 dffg$day<-as.integer(substr(dffg$day,6,7))
-dffg<-mutate(dffg, date=ISOdate(dffg$year,dffg$month,dffg$day))
+dffg<-mutate(dffg, date=as.Date(paste(year,month,day), "%Y%m%d"))
 dffg<-arrange(dffg, id, element, date)
+```
+
+Factor the ```id``` with the stations name and save ```TMAX``` and ```TMIN``` for later use. 
+
+```{r warning=FALSE}
+dffg$id<-factor(dffg$id)
+levels(dffg$id) = sp_stations$name
+TData<-filter(dffg, element %in% c("TMAX", "TMIN"))
+save(TData, file="TData.rda")
 ```
 
 The monthly averages are calculated
@@ -138,8 +147,6 @@ pru_gby<-group_by(dffg, id, element, month, year)
 pru<-summarize(pru_gby, mval=mean(value, na.rm=TRUE ))
 pru$month<-factor(pru$month)
 levels(pru$month)<-month.name
-pru$id<-factor(pru$id)
-levels(pru$id)<-sp_stations$name
 ```
 
 Plot the monthly averages of TMAX and TMIN elements
@@ -166,10 +173,9 @@ suppressMessages(print(p))
 Decompose the TMAX time series for one station
 
 ```{r warning=FALSE, message=FALSE}
-pru<-filter(dffg, element == "TMAX", id == sp_stations$id[13], !is.na(value))
+pru<-filter(dffg, element == "TMAX", id == sp_stations$name[13], !is.na(value))
 pru<-select(pru, date, value)
-pru<-pru[order(pru$date),]
-pruts<-ts(pru$value, frequency = 365)
+pruts<-ts(pru$value, frequency = 365, start=c(as.numeric(format(pru$date[1], "%Y"), 1)))
 prucomp<-decompose(pruts, type = "additive")
 ```
 

@@ -43,7 +43,7 @@ HWplot<-function(hw_object,  n.ahead=4,  CI=.95,  error.ribbon='green', line.siz
       p<-p + geom_vline(x=max(as.numeric(actual_values$time)),  lty=2) 
       p<-p + xlab('Time') + ylab('Value')
       p<-p + scale_x_date()
-      p<-p + theme(legend.position='bottom', axis.text.x=element_text(angle=45), , hjust = 1) 
+      p<-p + theme(legend.position='bottom', axis.text.x=element_text(angle=45, hjust = 1)) 
       p<-p + scale_colour_hue('')
       return(p)
       
